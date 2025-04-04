@@ -1,53 +1,42 @@
-import {createRxDatabase, addRxPlugin} from 'rxdb';
-import {RxDBUpdatePlugin} from 'rxdb/plugins/update';
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
+import {addRxPlugin, createRxDatabase} from 'rxdb/plugins/core';
+import {getRxStorageSQLite} from 'rxdb/plugins/storage-sqlite';
+import SQLiteAdapter from 'rxdb/plugins/storage-sqlite';
 import {businessSchema} from './Schemas';
 import {articleSchema} from './Schemas';
+import {RxDBReplicationCouchDBPlugin} from 'rxdb/plugins/replication-couchdb';
+import NetInfo from '@react-native-community/netinfo';
+import {getRxStorageLocalstorage} from 'rxdb/plugins/storage-localstorage';
+import {wrappedValidateAjvStorage} from 'rxdb/plugins/validate-ajv';
+import {RxDBDevModePlugin} from 'rxdb/plugins/dev-mode';
 
-addRxPlugin(RxDBUpdatePlugin);
-
-let dbInstance = null;
-
+// Enable SQLite storage
+// addRxPlugin(SQLiteAdapter);
+addRxPlugin(RxDBDevModePlugin);
+addRxPlugin(RxDBReplicationCouchDBPlugin);
+// Create Database Instance
 export const initDB = async () => {
-  if (!dbInstance) {
-    dbInstance = await createRxDatabase({
-      name: 'business',
-      storage: {
-        async getItem(key) {
-          return await AsyncStorage.getItem(key);
-        },
-        async setItem(key, value) {
-          await AsyncStorage.setItem(key, value);
-        },
-        async removeItem(key) {
-          await AsyncStorage.removeItem(key);
-        },
-      },
-    });
+  const db = await createRxDatabase({
+    name: 'mydatabase',
+    storage: wrappedValidateAjvStorage({
+      storage: getRxStorageLocalstorage(),
+    }),
+  });
+  await db.addCollections({
+    businesses: {schema: businessSchema},
+    articles: {schema: articleSchema},
+  });
 
-    await dbInstance.addCollections({
-      business: {schema: businessSchema},
-      articles: {schema: articleSchema},
-    });
-
-    console.log('Database initialized!');
-  }
-  return dbInstance;
+  console.log('Database Initialized', db);
+  return db;
 };
-
-// Function to sync with CouchDB when online
 export const setupSync = async db => {
+  const syncUrl = 'http://127.0.0.1:5984';
+
   NetInfo.addEventListener(state => {
     if (state.isConnected) {
       console.log('Syncing with CouchDB...');
-      db.business.syncCouchDB({
-        remote: 'http://admin:password@127.0.0.1:5984/business',
-      });
-      db.articles.syncCouchDB({
-        remote: 'http://admin:password@127.0.0.1:5984/articles',
-      });
+      db.businesses.syncCouchDB({remote: `${syncUrl}/businesses`});
+      db.articles.syncCouchDB({remote: `${syncUrl}/articles`});
     }
   });
 };
